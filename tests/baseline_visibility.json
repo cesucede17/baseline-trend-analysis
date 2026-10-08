@@ -1,0 +1,96 @@
+{
+  "membership": [
+    [
+      1,
+      "csuela",
+      "admin",
+      11,
+      "HTTP_Train_Test",
+      0
+    ],
+    [
+      1,
+      "csuela",
+      "admin",
+      22,
+      "Vigilancia",
+      1
+    ],
+    [
+      1,
+      "csuela",
+      "admin",
+      32,
+      "Acme Manufacturing Plant 01",
+      1
+    ],
+    [
+      2,
+      "ilasierra",
+      "user",
+      24,
+      "INTERQUIM",
+      1
+    ],
+    [
+      2,
+      "ilasierra",
+      "user",
+      28,
+      "INTERQUIM isa",
+      1
+    ],
+    [
+      3,
+      "jmorales",
+      "user",
+      11,
+      "HTTP_Train_Test",
+      0
+    ],
+    [
+      3,
+      "jmorales",
+      "user",
+      26,
+      "IQE",
+      0
+    ],
+    [
+      4,
+      "lluciani",
+      "user",
+      30,
+      "Moneflex-pruebaSM-0",
+      1
+    ],
+    [
+      4,
+      "lluciani",
+      "user",
+      31,
+      "Moneflex-pruebas-total",
+      1
+    ],
+    [
+      5,
+      "agarcia",
+      "user",
+      null,
+      null,
+      null
+    ]
+  ],
+  "row_counts": {
+    "users": 5,
+    "projects": 9,
+    "sessions": 13,
+    "iterations": 37,
+    "project_users": 9,
+    "audit_log": 283,
+    "active_context": 1,
+    "active_context_user": 5,
+    "iteration_params": 1548,
+    "iteration_features": 223
+  }
+}

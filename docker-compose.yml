@@ -1,0 +1,173 @@
+# PALBE -- se une a sge_net como red EXTERNA, declarada "external: true"
+# tambien en platform/compose.yml (Fase 1: Traefik, Postgres, Keycloak),
+# construida y en marcha desde 2026-09-14 -- platform/ no la crea, la declara
+# external igual que este fichero. Un "docker compose up -d" aqui no roza
+# Keycloak, Postgres ni el Dashboard.
+#
+# El nombre de enrutado sale de SGE_BASE_DOMAIN (palbe.<dominio>), el MISMO
+# dominio que usan Keycloak y el recibidor en platform/compose.yml; ver
+# .env.example para el porque de un nombre interno y no un dominio publico. PALBE_HTTPS_ONLY=0 por defecto, y la
+# etiqueta de certresolver de Traefik esta aislada para poder activarla sin
+# tocar el resto cuando entre TLS. El puerto local publicado se mantiene
+# aunque Traefik ya sea la unica puerta de entrada comun: es la via de
+# emergencia acordada si Traefik cae (docs/runbooks/RUNBOOK_SERVIDOR_LINUX.md,
+# "Cimientos (Fase 1)" -> Escalon 3).
+
+services:
+  palbe:
+    image: palbe:v1.0
+    build: .
+    restart: unless-stopped
+    # Techo de memoria. La VM tiene 3,8 GB y no se puede ampliar, asi que un
+    # pico de entrenamiento no debe poder tumbar a Keycloak ni al reves.
+    # En reposo PALBE consume ~240 MB (medido); 1,5 GB deja sitio de sobra
+    # para entrenar sin dejar que se lo coma todo.
+    mem_limit: 1500m
+    memswap_limit: 2500m
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.28.0.0/16}
+      PALBE_HTTPS_ONLY: ${PALBE_HTTPS_ONLY:-0}
+      PALBE_DEBUG: ${PALBE_DEBUG:-0}
+      PALBE_SEED_DEMO_USERS: ${PALBE_SEED_DEMO_USERS:-0}
+      PALBE_SSO_ENABLED: ${PALBE_SSO_ENABLED:-0}
+      # Fase 4c, Tarea 6: las otras cuatro se quedaron fuera de este bloque
+      # al añadir el flag (Tarea 4) -- sin ellas el flag no basta, SSO_ENABLED
+      # queda en True pero register_sso_routes() no encuentra configuracion
+      # y no registra las rutas. Las tres no sensibles, vacias por defecto:
+      # con el flag apagado no hace falta que existan en el .env.
+      # Bajo que ruta se sirve PALBE. Vacia = dueña de su nombre y de la
+      # raiz, que es como ha funcionado siempre. Ver palbe_rutas.py.
+      PALBE_RUTA_BASE: ${PALBE_RUTA_BASE:-}
+      PALBE_SSO_ISSUER: ${PALBE_SSO_ISSUER:-}
+      PALBE_SSO_CLIENT_ID: ${PALBE_SSO_CLIENT_ID:-}
+      # Sin default, como SECRET_KEY y ANTHROPIC_API_KEY (los otros dos
+      # secretos reales de este bloque). Si falta, compose NO impide el
+      # arranque: emite un warning ("variable is not set. Defaulting to a
+      # blank string") y sustituye por cadena vacia -- el contenedor arranca
+      # igual y load_config() devuelve None (falta esta variable), asi que
+      # register_sso_routes() simplemente no registra /sso/*. El warning en
+      # el log es la unica senal; no hay error duro que pare el despliegue.
+      PALBE_SSO_CLIENT_SECRET: ${PALBE_SSO_CLIENT_SECRET}
+      PALBE_SSO_REDIRECT_URI: ${PALBE_SSO_REDIRECT_URI:-}
+      # Revision final del Dashboard: la quinta variable de SSO, la del
+      # cierre de sesion unico, se quedo fuera de este bloque -- el MISMO
+      # defecto que la Fase 4c con las otras cuatro (ver comentario de
+      # arriba), una tarea despues. Sin ella, url_de_cierre() sigue
+      # devolviendo una URL (lleva client_id siempre), pero sin
+      # post_logout_redirect_uri: Keycloak cierra la sesion y deja a quien
+      # cierra sesion en su propia pantalla en vez de devolverlo a PALBE.
+      # El destino es el RECIBIDOR, el dominio pelado, igual que en Tambora,
+      # Bartolo, CAE y el propio recibidor. PALBE era la unica de las cinco
+      # que devolvia a su PROPIO /login -- el formulario local--, y eso le
+      # ofrece al que sale una contrasena que casi nadie tiene.
+      PALBE_SSO_POST_LOGOUT_URI: ${PALBE_SSO_POST_LOGOUT_URI:-http://${SGE_BASE_DOMAIN:-sge.local}:8080/}
+      # La vuelta al recibidor. Derivada del mismo dominio que todo lo demas:
+      # el recibidor es el dominio pelado (ver platform/.env.example). Si esta
+      # vacia, la cabecera no pinta el enlace.
+      #
+      # Tiene que llegar hasta aqui o el boton no existe, sin ningun error al
+      # arrancar -- el mismo defecto que ya se ha cometido tres veces en este
+      # proyecto con variables de SSO y con SGE_BASE_DOMAIN. De ahi el test
+      # que vigila este bloque en tests/test_plataforma_link.py.
+      PALBE_PLATAFORMA_URL: ${PALBE_PLATAFORMA_URL:-http://${SGE_BASE_DOMAIN:-sge.local}:8080/}
+
+      # El secreto con el que el recibidor pregunta "en que andaba esta
+      # persona". El MISMO valor que SGE_CONTEXTO_TOKEN en platform/.env, o la
+      # franja "Sigue donde lo dejaste" no incluira a PALBE.
+      # Vacio = la ruta NO se registra (404, no 401), asi que una copia suelta
+      # en un portatil no expone nada. Sin defecto a proposito.
+      # Octava variable con su propio test que LEE este fichero.
+      PALBE_CONTEXTO_TOKEN: ${SGE_CONTEXTO_TOKEN}
+    volumes:
+      - palbe_db:/data/db
+      - palbe_outputs:/data/outputs
+      - palbe_user_data:/data/user_data
+      - palbe_backups:/data/backups
+    # Puerto local: hoy es la VIA DE EMERGENCIA, no un vestigio pendiente de
+    # quitar. Traefik (Fase 1, en marcha) ya es la unica puerta de entrada
+    # comun para PALBE y Keycloak; la decision tomada es mantener este
+    # puerto igualmente, atado al loopback, para poder entrar si Traefik
+    # cae (docs/runbooks/RUNBOOK_SERVIDOR_LINUX.md, "Cimientos (Fase 1)" -> Escalon 3).
+    #
+    # Se publica en el LOOPBACK por defecto, no en 0.0.0.0. Docker inserta
+    # sus reglas en la cadena DOCKER de nat POR DELANTE de ufw, asi que un
+    # "ufw default deny incoming" NO bloquea un puerto publicado por Docker:
+    # con "8971:8000" a secas, el primer "docker compose up" dejaria PALBE
+    # -- con datos de clientes y sin TLS -- accesible desde toda la LAN
+    # mientras el firewall parece cerrado. Atarlo a 127.0.0.1 hace que el
+    # unico camino sea el tunel SSH, y abrirlo a la LAN pase a ser una
+    # decision explicita y reversible (PALBE_BIND_ADDR=0.0.0.0 en el .env)
+    # en lugar de un valor por defecto peligroso.
+    ports:
+      - "${PALBE_BIND_ADDR:-127.0.0.1}:${PALBE_PORT:-8971}:8000"
+    networks:
+      - sge_net
+    labels:
+      # Inertes hasta que Traefik exista (Fase 1) y esta pieza se una a
+      # su red. La parte de TLS va en una etiqueta aparte, aislada, para
+      # poder quitarla sin tocar el resto si el escenario final es LAN
+      # sin certificado.
+      - "traefik.enable=true"
+      # Dos nombres, un solo servicio. SGE_BASE_DOMAIN_ALT es el nombre
+      # VIEJO durante un cambio de dominio: mientras los dos esten puestos
+      # la herramienta responde por los dos, asi que el dominio nuevo se
+      # puede probar sin que deje de funcionar el que usa la gente, y volver
+      # atras es intercambiar las dos variables. Vacia por defecto cae en
+      # alt.invalid, que el RFC 2606 reserva para que no resuelva nunca.
+      - "traefik.http.routers.palbe.rule=Host(`${PALBE_HOSTNAME:-palbe.${SGE_BASE_DOMAIN:-sge.local}}`) || Host(`palbe.${SGE_BASE_DOMAIN_ALT:-alt.invalid}`)"
+      - "traefik.http.routers.palbe.service=palbe"
+      # entrypoints, que faltaba: sin el, el router se ata a TODOS los
+      # entrypoints que haya. Hoy solo hay uno y da igual; el dia que se
+      # añada otro --443, por ejemplo-- PALBE quedaria publicada ahi sin que
+      # nadie lo hubiera decidido. Lo señalo la auditoria.
+      - "traefik.http.routers.palbe.entrypoints=web"
+      #
+      # Y el segundo camino: PALBE colgada de una RUTA bajo el nombre del
+      # portal, <dominio>/palbe. Es a donde vamos -- un solo nombre para las
+      # cinco, que es lo que permite un solo certificado el dia que haya
+      # HTTPS, sin comodin y sin seis SAN.
+      #
+      # Los dos caminos existen a la vez pero solo uno FUNCIONA, y lo decide
+      # PALBE_RUTA_BASE. Vacia, PALBE emite sus enlaces desde la raiz y solo
+      # sirve el camino por nombre; puesta a /palbe los reescribe el
+      # middleware de palbe_rutas.py y solo sirve el de ruta.
+      #
+      # StripPrefix porque las rutas declaradas NO llevan el prefijo:
+      # @app.get("/step/3") sigue siendo /step/3. El prefijo solo existe de
+      # puertas afuera, que es donde lo resuelve el navegador.
+      - "traefik.http.routers.palbe-ruta.rule=(Host(`${SGE_BASE_DOMAIN:-sge.local}`) || Host(`${SGE_BASE_DOMAIN_ALT:-alt.invalid}`)) && PathPrefix(`/palbe`)"
+      - "traefik.http.routers.palbe-ruta.service=palbe"
+      - "traefik.http.routers.palbe-ruta.entrypoints=web"
+      - "traefik.http.routers.palbe-ruta.middlewares=palbe-strip"
+      - "traefik.http.middlewares.palbe-strip.stripprefix.prefixes=/palbe"
+      - "traefik.http.services.palbe.loadbalancer.server.port=8000"
+      # - "traefik.http.routers.palbe.tls.certresolver=letsencrypt"
+
+networks:
+  sge_net:
+    # Externa en los DOS ficheros de compose: platform/compose.yml
+    # (Fase 1: Traefik, Postgres, Keycloak) tambien la declara
+    # "external: true" -- ninguno de los dos la crea ni la destruye. Se
+    # crea a mano UNA sola vez, con la subred DEL CONTRATO -- no con la que
+    # Docker asigne, porque de ese valor depende FORWARDED_ALLOW_IPS:
+    #
+    #   docker network create --driver bridge --subnet 172.28.0.0/16 sge_net
+    #
+    # Si 172.28.0.0/16 estuviera ocupada en el servidor, se elige otra Y se
+    # cambia FORWARDED_ALLOW_IPS al mismo valor a la vez: es un solo dato
+    # escrito en dos sitios, y desincronizarlo rompe el rate limit del login
+    # en silencio.
+    #
+    # Por que external en los dos ficheros, y no que platform/ la cree con su
+    # propio bloque ipam: decision ya tomada, para que ni "docker compose up"
+    # en platform/ ni en modules/palbe/ dependa de cual de los dos se levanta
+    # primero, y para que recrear una pieza no obligue a parar la otra.
+    external: true
+
+volumes:
+  palbe_db:
+  palbe_outputs:
+  palbe_user_data:
+  palbe_backups:

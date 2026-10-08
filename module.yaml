@@ -1,0 +1,19 @@
+# Manifiesto del módulo: fuente única de sus datos para la plataforma.
+# Formato: docs/superpowers/specs/2026-10-01-estructura-plataforma-design.md
+id: palbe
+nombre: PALBE
+version: 5.0.0
+contrato: 1
+stack: [python, fastapi]
+puerto_interno: 8000
+ruta_base: /palbe
+health: /health
+ofrece: [contexto, activos]
+# Atado a 127.0.0.1 a propósito: solo se entra por túnel SSH. Ver el
+# comentario de "ports" en docker-compose.yml.
+puertos_locales: ["${PALBE_BIND_ADDR:-127.0.0.1}:${PALBE_PORT:-8971}:8000"]
+portal:
+  descripcion: Lineas base energeticas, seguimiento y verificacion IPMVP
+  icono: /static/iconos/palbe.png
+  entrada: /sso/login
+  orden: 1
